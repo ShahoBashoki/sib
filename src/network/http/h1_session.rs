@@ -56,10 +56,12 @@ where
         self.req.headers.to_vec()
     }
 
+    #[inline(always)]
     fn req_header(&self, header: &HttpHeader) -> std::io::Result<&str> {
-        self.req_header_str(&header.to_string())
+        self.req_header_str(header.as_str())
     }
 
+    #[inline(always)]
     fn req_header_str(&self, header: &str) -> std::io::Result<&str> {
         for h in self.req.headers.iter() {
             if h.name.eq_ignore_ascii_case(header) {
@@ -135,16 +137,12 @@ where
                 }
                 Err(e) => return Err(e),
             }
-
-            if read % 1024 == 0 {
-                may::coroutine::yield_now();
-            }
         }
 
         Ok(&self.req_buf[..content_length])
     }
 
-    #[inline]
+    #[inline(always)]
     fn status_code(&mut self, status: super::util::Status) -> &mut Self {
         const SERVER_NAME: &str =
             concat!("\r\nServer: Sib ", env!("SIB_BUILD_VERSION"), "\r\nDate: ");
@@ -161,7 +159,7 @@ where
         self
     }
 
-    #[inline]
+    #[inline(always)]
     fn header_str(&mut self, name: &str, value: &str) -> std::io::Result<&mut Self> {
         if self.rsp_headers_len >= MAX_HEADERS {
             return Err(io::Error::new(
@@ -177,7 +175,7 @@ where
         Ok(self)
     }
 
-    #[inline]
+    #[inline(always)]
     fn headers_str(&mut self, header_val: &[(&str, &str)]) -> std::io::Result<&mut Self> {
         for (name, value) in header_val {
             self.header_str(name, value)?;
@@ -185,7 +183,7 @@ where
         Ok(self)
     }
 
-    #[inline]
+    #[inline(always)]
     fn header(&mut self, name: &HttpHeader, value: &str) -> std::io::Result<&mut Self> {
         if self.rsp_headers_len >= MAX_HEADERS {
             return Err(io::Error::new(
@@ -193,7 +191,7 @@ where
                 "too many headers",
             ));
         }
-        self.rsp_buf.extend_from_slice(format!("{name}").as_bytes());
+        self.rsp_buf.extend_from_slice(name.as_str().as_bytes());
         self.rsp_buf.extend_from_slice(b": ");
         self.rsp_buf.extend_from_slice(value.as_bytes());
         self.rsp_buf.extend_from_slice(b"\r\n");
@@ -201,7 +199,7 @@ where
         Ok(self)
     }
 
-    #[inline]
+    #[inline(always)]
     fn headers(&mut self, header_val: &[(HttpHeader, &str)]) -> std::io::Result<&mut Self> {
         for (name, value) in header_val {
             self.header(name, value)?;
@@ -209,7 +207,7 @@ where
         Ok(self)
     }
 
-    #[inline]
+    #[inline(always)]
     fn headers_vec(&mut self, header_val: &[(HttpHeader, String)]) -> std::io::Result<&mut Self> {
         for (name, value) in header_val {
             self.header(name, value)?;
@@ -217,28 +215,28 @@ where
         Ok(self)
     }
 
-    #[inline]
+    #[inline(always)]
     fn body(&mut self, body: &bytes::Bytes) -> &mut Self {
         self.rsp_buf.extend_from_slice(b"\r\n");
         self.rsp_buf.extend_from_slice(body);
         self
     }
 
-    #[inline]
+    #[inline(always)]
     fn body_slice(&mut self, body: &[u8]) -> &mut Self {
         self.rsp_buf.extend_from_slice(b"\r\n");
         self.rsp_buf.extend_from_slice(body);
         self
     }
 
-    #[inline]
+    #[inline(always)]
     fn body_static(&mut self, body: &'static str) -> &mut Self {
         self.rsp_buf.extend_from_slice(b"\r\n");
         self.rsp_buf.extend_from_slice(body.as_bytes());
         self
     }
 
-    #[inline]
+    #[inline(always)]
     fn eom(&mut self) {
         // eom, end of message
         #[cfg(debug_assertions)]

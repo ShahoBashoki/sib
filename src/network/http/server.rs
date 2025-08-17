@@ -277,7 +277,7 @@ pub trait HFactory: Send + Sized + 'static {
     }
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn reserve_buf(buf: &mut BytesMut) {
     let rem = buf.capacity() - buf.len();
     if rem < MIN_BUF_LEN {
@@ -286,7 +286,7 @@ pub(crate) fn reserve_buf(buf: &mut BytesMut) {
 }
 
 #[cfg(unix)]
-#[inline]
+#[inline(always)]
 fn read(stream: &mut impl Read, buf: &mut BytesMut) -> io::Result<bool> {
     reserve_buf(buf);
     let chunk = buf.chunk_mut();
@@ -310,7 +310,7 @@ fn read(stream: &mut impl Read, buf: &mut BytesMut) -> io::Result<bool> {
 }
 
 #[cfg(unix)]
-#[inline]
+#[inline(always)]
 fn write(stream: &mut impl std::io::Write, rsp_buf: &mut BytesMut) -> io::Result<usize> {
     use bytes::Buf;
     use std::io::IoSlice;
@@ -332,6 +332,7 @@ fn write(stream: &mut impl std::io::Write, rsp_buf: &mut BytesMut) -> io::Result
 }
 
 #[cfg(unix)]
+#[inline(always)]
 fn read_write<S, T>(
     stream: &mut S,
     peer_addr: &SocketAddr,
@@ -455,7 +456,7 @@ enum H3CtrlMsg {
 #[cfg(feature = "net-h3-server")]
 #[derive(Debug)]
 struct Datagram {
-    buf: Vec<u8>,
+    buf: BytesMut,
     from: SocketAddr,
     to: SocketAddr,
 }
@@ -700,6 +701,8 @@ fn quic_dispatcher<S, F>(
     let (ctrl_tx, ctrl_rx) = may::sync::mpsc::channel::<H3CtrlMsg>();
 
     let mut out = [0u8; MAX_DATAGRAM_SIZE];
+    // Reusable UDP receive buffer to avoid per-iteration allocation
+    let mut buf = BytesMut::with_capacity(MAX_DATAGRAM_SIZE);
 
     loop {
         // drain control messages
@@ -723,9 +726,11 @@ fn quic_dispatcher<S, F>(
         let now = Instant::now();
         by_addr.retain(|_, v| v.expires > now);
 
-        // read a UDP datagram
-        let mut buf = BytesMut::with_capacity(65535);
-        buf.resize(65535, 0);
+        // read a UDP datagram using the reusable buffer
+        if buf.capacity() < MAX_DATAGRAM_SIZE {
+            buf.reserve(MAX_DATAGRAM_SIZE - buf.capacity());
+        }
+        buf.resize(MAX_DATAGRAM_SIZE, 0);
         let (n, from) = match socket.recv_from(&mut buf) {
             Ok(v) => v,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -753,7 +758,7 @@ fn quic_dispatcher<S, F>(
         // fast path: known DCID → route to worker
         if let Some(tx) = by_cid.get(&dcid_key) {
             let _ = tx.send(Datagram {
-                buf: buf.to_vec(),
+                buf: buf.split(),
                 from,
                 to: local_addr,
             });
@@ -763,7 +768,7 @@ fn quic_dispatcher<S, F>(
         // fallback path: known address → route and learn new DCID
         if let Some(entry) = by_addr.get(&from) {
             let tx = &entry.tx;  // <- use entry.tx
-            let _ = tx.send(Datagram { buf: buf.to_vec(), from, to: local_addr });
+            let _ = tx.send(Datagram { buf: buf.split(), from, to: local_addr });
             by_cid.insert(dcid_key, tx.clone());
             continue;
         }
@@ -838,7 +843,7 @@ fn quic_dispatcher<S, F>(
 
         // seed worker with the first datagram
         let _ = tx.send(Datagram {
-            buf: buf.to_vec(),
+            buf: buf.split(),
             from,
             to: local_addr,
         });

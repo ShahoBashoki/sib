@@ -1,102 +1,64 @@
 use bytes::Bytes;
 use sib::network::http::{
-    server::HFactory, session::{HService, Session}, util::Status
-};
-use std::{
-    fs
+    server::HFactory,
+    session::{HService, Session},
+    util::Status,
 };
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[derive(serde::Serialize)]
-struct JsonMessage<'a> {
-    message: &'a str,
-}
+// Precomputed static bodies (zero alloc per request)
+const PLAIN_BODY: &[u8] = b"Hello, World!";
+const PLAIN_CL: &str = "13"; // PLAIN_BODY.len()
 
-impl Default for JsonMessage<'_> {
-    fn default() -> Self {
-        JsonMessage {
-            message: "Hello, World!",
-        }
-    }
-}
+const JSON_BODY: &[u8] = br#"{"message":"Hello, World!"}"#;
+const JSON_CL: &str = "27"; // JSON_BODY.len()
 
 struct Server;
 
 impl HService for Server {
+    #[inline]
     fn call<S: Session>(&mut self, session: &mut S) -> std::io::Result<()> {
-        if session.req_path() == Some("/json") {
-            // Respond with JSON
-            let json = serde_json::to_vec(&JsonMessage::default())?;
+        if matches!(session.req_path(), Some("/json")) {
             session
                 .status_code(Status::Ok)
                 .header_str("Content-Type", "application/json")?
-                .header_str("Content-Length", &json.len().to_string())?
-                .body(&Bytes::from(json))
+                .header_str("Content-Length", JSON_CL)?
+                .body(&Bytes::from_static(JSON_BODY))
                 .eom();
             return Ok(());
         }
         session
             .status_code(Status::Ok)
             .header_str("Content-Type", "text/plain")?
-            .header_str("Content-Length", "13")?
-            .body(&Bytes::from_static(b"Hello, World!"))
+            .header_str("Content-Length", PLAIN_CL)?
+            .body(&Bytes::from_static(PLAIN_BODY))
             .eom();
         Ok(())
     }
 }
 
-impl HFactory for Server{
+impl HFactory for Server {
     type Service = Server;
 
+    #[inline]
     fn service(&self, _id: usize) -> Server {
         Server
     }
 }
 
 fn main() {
-    // Print number of CPU cores
     let cpus = num_cpus::get();
     println!("CPU cores: {cpus}");
-
     sib::set_num_workers(cpus);
 
-    // Print total RAM in MB
-    if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
-        for line in meminfo.lines() {
-            if line.starts_with("MemTotal:") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    if let Ok(kb) = parts[1].parse::<u64>() {
-                        let mb = kb / 1024;
-                        println!("Total RAM: {mb} MB");
-                    }
-                }
-                break;
-            }
-        }
-    }
-
-    // Pick a port and start the server
     let addr = "0.0.0.0:8080";
-    let mut threads = Vec::with_capacity(cpus);
+    println!("Listening {addr}");
 
-    for _ in 0..cpus {
-        let handle = std::thread::spawn(move || {
-            let id = std::thread::current().id();
-            println!("Listening {addr} on thread: {id:?}");
-            Server
-                .start_h1(addr, 0)
-                .unwrap_or_else(|_| panic!("h1 server failed to start for thread {id:?}"))
-                .join()
-                .unwrap_or_else(|_| panic!("h1 server failed to joining thread {id:?}"));
-        });
-        threads.push(handle);
-    }
-
-    // Wait for all threads to complete (they won’t unless crashed)
-    for handle in threads {
-        handle.join().expect("Thread panicked");
-    }
+    Server
+        .start_h1(addr, 0)
+        .expect("h1 server failed to start")
+        .join()
+        .expect("h1 server thread join failed");
 }

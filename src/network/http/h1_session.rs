@@ -242,7 +242,7 @@ where
     fn eom(&mut self) {
         // eom, end of message
         #[cfg(debug_assertions)]
-        eprintln!("sent: {:?}", self.rsp_buf);
+        eprintln!("sent:");
     }
 }
 

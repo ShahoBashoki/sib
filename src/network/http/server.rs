@@ -1690,6 +1690,7 @@ pub mod tests {
 
         let client = reqwest::blocking::Client::builder()
             .danger_accept_invalid_certs(true)
+            .http2_prior_knowledge()
             .http2_adaptive_window(true)
             .build()
             .expect("reqwest client");
@@ -1732,6 +1733,7 @@ pub mod tests {
 
         let client = reqwest::blocking::Client::builder()
             .danger_accept_invalid_certs(true)
+            .http2_prior_knowledge()
             .http2_adaptive_window(true)
             .build()
             .expect("reqwest client");

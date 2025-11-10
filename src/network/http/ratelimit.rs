@@ -460,6 +460,7 @@ mod tests {
         // HTTP/2 client
         let client = Client::builder()
             .danger_accept_invalid_certs(true)
+            .http2_prior_knowledge()
             .http2_adaptive_window(true)
             .build()
             .expect("client");
